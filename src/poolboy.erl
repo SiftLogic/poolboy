@@ -5,7 +5,7 @@
 
 -export([checkout/1, checkout/2, checkout/3, checkin/2, transaction/2,
          transaction/3, child_spec/2, child_spec/3, start/1, start/2,
-         start_link/1, start_link/2, stop/1, status/1]).
+         start_link/1, start_link/2, stop/1, status/1, resize/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 -export_type([pool/0]).
@@ -130,6 +130,10 @@ stop(Pool) ->
 status(Pool) ->
     gen_server:call(Pool, status).
 
+-spec resize(Pool :: pool(), Size :: non_neg_integer()) -> ok.
+resize(Pool, Size) ->
+    gen_server:call(Pool, {resize, Size}).
+
 init({PoolArgs, WorkerArgs}) ->
     process_flag(trap_exit, true),
     Waiting = queue:new(),
@@ -208,6 +212,10 @@ handle_call({checkout, CRef, Block}, {FromPid, _} = From, State) ->
             {noreply, State#state{waiting = Waiting}}
     end;
 
+handle_call({resize, NewSize}, _From, #state{size = OldSize, supervisor = Sup, workers = Workers} = State) when OldSize < NewSize ->
+    Add = NewSize - OldSize,
+    NewWorkers = prepopulate(Add, Sup, Workers),
+    {reply, ok, State#state{size = NewSize, workers = NewWorkers}};
 handle_call(status, _From, State) ->
     #state{workers = Workers,
            monitors = Monitors,
